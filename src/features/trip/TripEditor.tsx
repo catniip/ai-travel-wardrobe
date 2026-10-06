@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, CalendarDays, Check, ChevronLeft, Luggage, MapPin, Route, Sparkles, WashingMachine, X } from 'lucide-react'
+import { ArrowRight, CalendarDays, Check, ChevronLeft, Luggage, MapPin, Plus, Route, Sparkles, Trash2, WashingMachine, X } from 'lucide-react'
 import { activityOptions, getTripDays } from './tripConfig'
 import type { TripActivity, TripConfig } from '../../lib/types'
 
@@ -12,9 +12,9 @@ interface TripEditorProps {
 
 export function TripEditor({ open, trip, onClose, onSave }: TripEditorProps) {
   const [draft, setDraft] = useState<TripConfig>(trip)
-  const [citiesText, setCitiesText] = useState(trip.cities.join(', '))
   const [error, setError] = useState('')
   const days = useMemo(() => getTripDays(draft), [draft])
+  const allocatedDays = useMemo(() => draft.stops.reduce((sum, stop) => sum + stop.days, 0), [draft.stops])
 
   if (!open) return null
 
@@ -34,13 +34,26 @@ export function TripEditor({ open, trip, onClose, onSave }: TripEditorProps) {
     update('activities', next)
   }
 
+  const updateStop = (index: number, change: Partial<TripConfig['stops'][number]>) => {
+    update('stops', draft.stops.map((stop, stopIndex) => stopIndex === index ? { ...stop, ...change } : stop))
+  }
+
+  const addStop = () => {
+    update('stops', [...draft.stops, { id: `stop-${Date.now()}`, city: '', days: 1 }])
+  }
+
+  const removeStop = (index: number) => {
+    if (draft.stops.length === 1) return
+    update('stops', draft.stops.filter((_, stopIndex) => stopIndex !== index))
+  }
+
   const submit = () => {
-    const cities = citiesText.split(',').map((city) => city.trim()).filter(Boolean)
     if (!draft.destination.trim()) return setError('Add a destination to continue.')
     if (!draft.startDate || !draft.endDate || new Date(draft.endDate) < new Date(draft.startDate)) return setError('Choose a valid date range.')
-    if (!cities.length) return setError('Add at least one city or stop.')
+    if (!draft.stops.length || draft.stops.some((stop) => !stop.city.trim())) return setError('Add a city name for every stop.')
+    if (allocatedDays !== days) return setError(`Your stays add up to ${allocatedDays} days, but the trip is ${days} days.`)
     if (!draft.activities.length) return setError('Choose at least one activity.')
-    onSave({ ...draft, destination: draft.destination.trim(), cities })
+    onSave({ ...draft, destination: draft.destination.trim(), stops: draft.stops.map((stop) => ({ ...stop, city: stop.city.trim() })) })
   }
 
   return (
@@ -62,7 +75,21 @@ export function TripEditor({ open, trip, onClose, onSave }: TripEditorProps) {
             <div className="form-section-title"><MapPin size={18} /><div><span>Route & dates</span><small>Start with the shape of the trip</small></div></div>
             <div className="form-grid">
               <label className="field field-wide"><span>Destination</span><input value={draft.destination} onChange={(event) => update('destination', event.target.value)} placeholder="e.g. Japan" /></label>
-              <label className="field field-wide"><span>Cities or stops</span><div className="input-with-icon"><Route size={16} /><input value={citiesText} onChange={(event) => setCitiesText(event.target.value)} placeholder="Tokyo, Kyoto, Osaka" /></div><small>Separate stops with commas, in travel order.</small></label>
+              <div className="field field-wide route-builder">
+                <span><span>Cities & stay length</span><strong>{allocatedDays} / {days} days</strong></span>
+                <div className="route-stop-list">
+                  {draft.stops.map((stop, index) => (
+                    <div className="route-stop-row" key={stop.id}>
+                      <span className="stop-order">{index + 1}</span>
+                      <div className="input-with-icon"><Route size={16} /><input aria-label={`City ${index + 1}`} value={stop.city} onChange={(event) => updateStop(index, { city: event.target.value })} placeholder="City or region" /></div>
+                      <label><input aria-label={`Days in ${stop.city || `stop ${index + 1}`}`} type="number" min="1" max="30" value={stop.days} onChange={(event) => updateStop(index, { days: Math.max(1, Number(event.target.value)) })} /><span>days</span></label>
+                      <button type="button" onClick={() => removeStop(index)} disabled={draft.stops.length === 1} aria-label={`Remove ${stop.city || `stop ${index + 1}`}`}><Trash2 size={15} /></button>
+                    </div>
+                  ))}
+                </div>
+                <button className="add-stop" type="button" onClick={addStop}><Plus size={15} /> Add another stop</button>
+                <small className={allocatedDays !== days ? 'stay-warning' : ''}>{allocatedDays === days ? 'Perfect — every travel day is assigned.' : `Assign ${Math.abs(days - allocatedDays)} ${days > allocatedDays ? 'more' : 'fewer'} day${Math.abs(days - allocatedDays) === 1 ? '' : 's'}.`}</small>
+              </div>
               <label className="field"><span>Departure</span><div className="input-with-icon"><CalendarDays size={16} /><input type="date" value={draft.startDate} onChange={(event) => update('startDate', event.target.value)} /></div></label>
               <label className="field"><span>Return</span><div className="input-with-icon"><CalendarDays size={16} /><input type="date" value={draft.endDate} onChange={(event) => update('endDate', event.target.value)} /></div></label>
             </div>
@@ -96,8 +123,8 @@ export function TripEditor({ open, trip, onClose, onSave }: TripEditorProps) {
         </div>
 
         <footer className="trip-editor-footer">
-          <div>{error ? <span className="form-error">{error}</span> : <span><strong>{draft.destination || 'Your trip'}</strong> · {days} days · {citiesText.split(',').filter(Boolean).length || 0} stops</span>}</div>
-          <button className="button button-primary" type="button" onClick={submit}>Save & optimize <ArrowRight size={17} /></button>
+          <div>{error ? <span className="form-error">{error}</span> : <span><strong>{draft.destination || 'Your trip'}</strong> · {days} days · {draft.stops.length} stops</span>}</div>
+          <button className="button button-primary" type="button" onClick={submit}>Continue to wardrobe <ArrowRight size={17} /></button>
         </footer>
       </section>
     </div>

@@ -53,9 +53,15 @@ export type TripActivity =
   | 'formal'
   | 'business'
 
+export interface TripStop {
+  id: string
+  city: string
+  days: number
+}
+
 export interface TripConfig {
   destination: string
-  cities: string[]
+  stops: TripStop[]
   startDate: string
   endDate: string
   activities: TripActivity[]

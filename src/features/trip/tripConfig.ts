@@ -4,7 +4,11 @@ const scene = (index: number) => `/assets/scenes/scene-${String(index).padStart(
 
 export const defaultTrip: TripConfig = {
   destination: 'France',
-  cities: ['Paris', 'Provence', 'Nice'],
+  stops: [
+    { id: 'paris', city: 'Paris', days: 4 },
+    { id: 'provence', city: 'Provence', days: 3 },
+    { id: 'nice', city: 'Nice', days: 3 },
+  ],
   startDate: '2026-05-08',
   endDate: '2026-05-17',
   activities: ['cafe', 'museum', 'sightseeing', 'market', 'beach', 'dinner'],
@@ -14,6 +18,34 @@ export const defaultTrip: TripConfig = {
   dressRequirements: 'One elegant Michelin-star dinner',
   photoImportance: 86,
   varietyImportance: 72,
+}
+
+export function normalizeTrip(input?: Partial<TripConfig> & { cities?: string[] }): TripConfig {
+  if (!input) return defaultTrip
+  const merged = { ...defaultTrip, ...input }
+  if (Array.isArray(input.stops) && input.stops.length) {
+    return {
+      ...merged,
+      stops: input.stops.map((stop, index) => ({
+        id: stop.id || `stop-${index + 1}`,
+        city: stop.city || merged.destination,
+        days: Math.max(1, Number(stop.days) || 1),
+      })),
+    }
+  }
+
+  const legacyCities = Array.isArray(input.cities) && input.cities.length ? input.cities : defaultTrip.stops.map((stop) => stop.city)
+  const totalDays = getTripDays(merged as TripConfig)
+  const baseDays = Math.floor(totalDays / legacyCities.length)
+  const remainder = totalDays % legacyCities.length
+  return {
+    ...merged,
+    stops: legacyCities.map((city, index) => ({
+      id: `stop-${index + 1}`,
+      city,
+      days: Math.max(1, baseDays + (index < remainder ? 1 : 0)),
+    })),
+  }
 }
 
 export const activityOptions: Array<{ id: TripActivity; label: string; description: string }> = [
@@ -73,21 +105,24 @@ export function buildTripScenarios(trip: TripConfig): TripScenario[] {
   const selected = activities.slice(0, 6)
   const tripDays = getTripDays(trip)
   const usesFranceDemoImagery = trip.destination.trim().toLowerCase() === 'france'
-  const cities = trip.cities.length ? trip.cities : [trip.destination]
+  const stops = trip.stops.length ? trip.stops : [{ id: 'destination', city: trip.destination, days: tripDays }]
   const activityScenarios = selected.map((activity, index) => {
     const template = templates[activity]
-    const city = cities[Math.min(template.destinationIndex, cities.length - 1)] ?? trip.destination
-    const day = Math.max(1, Math.round(1 + (index * Math.max(1, tripDays - 2)) / Math.max(1, selected.length)))
+    const stopIndex = Math.min(template.destinationIndex, stops.length - 1)
+    const stop = stops[stopIndex]
+    const stopStartDay = 1 + stops.slice(0, stopIndex).reduce((sum, item) => sum + item.days, 0)
+    const scenariosAtStop = selected.slice(0, index).filter((item) => Math.min(templates[item].destinationIndex, stops.length - 1) === stopIndex).length
+    const day = Math.min(tripDays, stopStartDay + Math.min(Math.max(0, stop.days - 1), scenariosAtStop))
     return {
       ...template,
-      title: template.title(city),
-      destination: city,
+      title: template.title(stop.city),
+      destination: stop.city,
       day,
       image: usesFranceDemoImagery ? scene(template.imageIndex) : '',
     }
   })
 
-  const lastCity = cities[cities.length - 1] ?? trip.destination
+  const lastCity = stops[stops.length - 1]?.city ?? trip.destination
   return [
     ...activityScenarios,
     {

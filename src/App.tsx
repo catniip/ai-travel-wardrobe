@@ -7,7 +7,8 @@ import { RefineDrawer } from './components/RefineDrawer'
 import { ScenarioRail } from './components/ScenarioRail'
 import { garments as seedGarments } from './data/demo'
 import { TripEditor } from './features/trip/TripEditor'
-import { buildTripScenarios, defaultTrip, getTripDays, getTripLabel } from './features/trip/tripConfig'
+import { buildTripScenarios, defaultTrip, getTripDays, getTripLabel, normalizeTrip } from './features/trip/tripConfig'
+import { WardrobeChecklist, type WardrobeChoice } from './features/wardrobe/WardrobeChecklist'
 import { optimizeCapsule } from './lib/optimizer/optimize'
 import type { Garment, Preferences, TripConfig } from './lib/types'
 
@@ -28,7 +29,7 @@ function loadSavedState(): SavedState {
       return {
         garments: parsed.garments ?? seedGarments,
         preferences: parsed.preferences ?? defaultPreferences,
-        trip: parsed.trip ?? defaultTrip,
+        trip: normalizeTrip(parsed.trip as Partial<TripConfig> & { cities?: string[] }),
       }
     }
   } catch {
@@ -44,6 +45,7 @@ export function App() {
   const [dislikedOutfits, setDislikedOutfits] = useState<string[]>([])
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [tripEditorOpen, setTripEditorOpen] = useState(false)
+  const [wardrobeOpen, setWardrobeOpen] = useState(false)
   const [insightsOpen, setInsightsOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -106,7 +108,26 @@ export function App() {
       setSelectedScenarioId(nextScenarios[0]?.id ?? 'sightseeing')
       setDislikedOutfits([])
       setTripEditorOpen(false)
-      setToast(`${trip.destination} trip optimized`)
+      setWardrobeOpen(true)
+    })
+  }
+
+  const confirmWardrobe = (choices: Record<string, WardrobeChoice>) => {
+    const owned = Object.values(choices).filter((choice) => choice === 'owned').length
+    const swaps = Object.values(choices).filter((choice) => choice === 'swap').length
+    startTransition(() => {
+      setSaved((current) => ({
+        ...current,
+        garments: current.garments.map((garment) => {
+          const choice = choices[garment.id]
+          if (!choice) return garment
+          if (choice === 'owned') return { ...garment, status: garment.status === 'required' ? 'required' : 'optional' }
+          return { ...garment, status: 'excluded' }
+        }),
+      }))
+      setWardrobeOpen(false)
+      setSelectedGarmentId('trench')
+      setToast(`${owned} pieces confirmed · ${swaps} alternatives found`)
     })
   }
 
@@ -169,7 +190,7 @@ export function App() {
           scenarios={tripScenarios}
           garments={selectedGarments}
           selectedScenarioId={selectedScenarioId}
-          tripDescription={`From ${saved.trip.cities[0] ?? saved.trip.destination} to ${saved.trip.cities.at(-1) ?? saved.trip.destination}, styled for your real trip.`}
+          tripDescription={`From ${saved.trip.stops[0]?.city ?? saved.trip.destination} to ${saved.trip.stops.at(-1)?.city ?? saved.trip.destination}, styled for your real trip.`}
           onSelectScenario={setSelectedScenarioId}
           onDislike={(id) => {
             setDislikedOutfits((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
@@ -208,6 +229,16 @@ export function App() {
         trip={saved.trip}
         onClose={() => setTripEditorOpen(false)}
         onSave={saveTrip}
+      />
+
+      <WardrobeChecklist
+        key={`${saved.trip.destination}-${wardrobeOpen}`}
+        open={wardrobeOpen}
+        items={result.selected}
+        tripLabel={getTripLabel(saved.trip)}
+        onBack={() => { setWardrobeOpen(false); setTripEditorOpen(true) }}
+        onSkip={() => { setWardrobeOpen(false); setToast(`${saved.trip.destination} trip optimized`) }}
+        onConfirm={confirmWardrobe}
       />
 
       {toast ? <div className="toast" role="status"><Check size={16} /> {toast}<button type="button" onClick={() => setToast(null)} aria-label="Dismiss"><X size={14} /></button></div> : null}
